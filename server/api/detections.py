@@ -5,6 +5,7 @@ from typing import Dict, List
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
 from server.api.realtime import broadcast_detection
+from server.services.metrics_collector import METRICS   # ✅ B3
 import json
 
 router = APIRouter(prefix="/detections", tags=["detections"])
@@ -19,6 +20,9 @@ class Detection(BaseModel):
 
 @router.post("/push")
 def push_detection(det: Detection):
+    # ✅ B3: 메트릭 카운트
+    METRICS.note_detection()
+
     item: Dict = det.model_dump()
     _RECENT.appendleft(item)
     broadcast_detection(json.dumps(item, default=str))
