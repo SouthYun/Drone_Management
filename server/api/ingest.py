@@ -18,6 +18,8 @@ from server.api.events import router as events_router
 app.include_router(events_router)
 from server.api.drone import router as drone_router
 app.include_router(drone_router)
+from server.api.logs import router as logs_router
+app.include_router(logs_router)
 from fastapi.middleware.cors import CORSMiddleware
 app.add_middleware(
     CORSMiddleware, allow_origins=["*"], allow_credentials=True,
