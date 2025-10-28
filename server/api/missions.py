@@ -9,6 +9,7 @@ from server.services.waypoint_builder import (
 )
 from server.services.failsafe_monitor import mark_mission_start, mark_mission_end
 from server.api.realtime import broadcast_status
+from server.services.metrics_collector import METRICS       # ✅ B3
 
 router = APIRouter(prefix="/missions", tags=["missions"])
 
@@ -24,6 +25,9 @@ class AckReq(BaseModel):
 def enqueue(req: EnqueueReq) -> Dict:
     wp = build_waypoint(req.lat, req.lon, req.altitude, req.speed_mps, req.loiter_sec)
     enqueue_waypoint(wp)
+    # ✅ B3: 미션 등록 카운트
+    METRICS.note_mission_enqueued()
+
     broadcast_status(json.dumps({"type":"mission_enqueued","waypoint":wp}))
     return {"queued": True, "waypoint": wp, "queue_size": peek_queue_size()}
 
@@ -39,6 +43,11 @@ def next_mission() -> Dict:
 @router.post("/ack")
 def ack(req: AckReq) -> Dict:
     mark_mission_end(req.mission_id, reason=req.reason)
+
+    # ✅ B3: 완료만 성공 카운트
+    if req.reason == "completed":
+        METRICS.note_mission_completed()
+
     broadcast_status(json.dumps({"type":"mission_ended",
                                  "mission_id":req.mission_id,"reason":req.reason}))
     return {"ok": True}
