@@ -1,42 +1,65 @@
 # server/api/ingest.py
 from datetime import datetime, timezone
 from typing import Optional, Any, Dict
+import asyncio
+import json
 
 from fastapi import FastAPI, Depends
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.orm import Session
 
 from server.db.models import SessionLocal, init_db, AudioEvent
 from server.services.audio_event_filter import is_event_accepted
+from server.jobs.data_retention import run_scheduler
 
-app = FastAPI(title="DrownI Ingest API", version="0.1.0")
-from server.api.tdoa import router as tdoa_router
-app.include_router(tdoa_router)
-from server.api.missions import router as missions_router
-app.include_router(missions_router)
-from server.api.events import router as events_router
-app.include_router(events_router)
-from server.api.drone import router as drone_router
-app.include_router(drone_router)
-from server.api.logs import router as logs_router
-app.include_router(logs_router)
-from server.api.detections import router as detections_router
-from server.api.realtime import router as realtime_router
-app.include_router(detections_router)
-app.include_router(realtime_router)
+# -----------------------------
+# App & Middleware
+# -----------------------------
+app = FastAPI(title="DrownI API Server", version="1.0.0")
 
-from fastapi.middleware.cors import CORSMiddleware
 app.add_middleware(
-    CORSMiddleware, allow_origins=["*"], allow_credentials=True,
+    CORSMiddleware,
+    allow_origins=["*"], allow_credentials=True,
     allow_methods=["*"], allow_headers=["*"],
 )
 
+# -----------------------------
+# Routers
+# -----------------------------
+from server.api.tdoa import router as tdoa_router
+from server.api.missions import router as missions_router
+from server.api.events import router as events_router
+from server.api.drone import router as drone_router
+from server.api.logs import router as logs_router
+from server.api.detections import router as detections_router
+from server.api.realtime import router as realtime_router
 
+app.include_router(tdoa_router)
+app.include_router(missions_router)
+app.include_router(events_router)
+app.include_router(drone_router)
+app.include_router(logs_router)
+app.include_router(detections_router)
+app.include_router(realtime_router)
 
+# -----------------------------
+# DB Session dependency
+# -----------------------------
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+# -----------------------------
+# Models
+# -----------------------------
 class IngestPayload(BaseModel):
     sensor_id: str = Field(..., examples=["sensor-001"])
     prob_help: float = Field(..., ge=0.0, le=1.0, examples=[0.93])
-    ts: Optional[datetime] = None  # ISO8601 (UTC) 권장
+    ts: Optional[datetime] = None  # ISO8601(UTC) 권장
     battery: Optional[float] = None
     features: Optional[Dict[str, Any]] = None
     meta: Optional[Dict[str, Any]] = None
@@ -50,24 +73,21 @@ class IngestPayload(BaseModel):
             return v
         return datetime.fromisoformat(str(v).replace("Z", "+00:00"))
 
-
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-
-
+# -----------------------------
+# Lifecycle
+# -----------------------------
 @app.on_event("startup")
 def on_startup():
     init_db()
+    asyncio.create_task(run_scheduler())  # 6시간마다 보존기간 초과 데이터 정리
+    print("[DrownI] API server started at", datetime.now(timezone.utc).isoformat())
 
-
+# -----------------------------
+# Endpoints
+# -----------------------------
 @app.get("/health")
 def health():
-    return {"status": "ok"}
-
+    return {"status": "ok", "time": datetime.now(timezone.utc).isoformat()}
 
 @app.post("/ingest/audio", status_code=202)
 def ingest_audio(payload: IngestPayload, db: Session = Depends(get_db)):
@@ -80,8 +100,8 @@ def ingest_audio(payload: IngestPayload, db: Session = Depends(get_db)):
         accepted=accepted,
         ts=ts,
         battery=payload.battery,
-        features=None if payload.features is None else __import__("json").dumps(payload.features),
-        meta=None if payload.meta is None else __import__("json").dumps(payload.meta),
+        features=json.dumps(payload.features) if payload.features is not None else None,
+        meta=json.dumps(payload.meta) if payload.meta is not None else None,
     )
     db.add(ev)
     db.commit()
@@ -92,4 +112,3 @@ def ingest_audio(payload: IngestPayload, db: Session = Depends(get_db)):
         "event_id": ev.id,
         "accepted": accepted,
     }
-    
