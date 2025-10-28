@@ -10,6 +10,8 @@ from server.db.models import SessionLocal, init_db, AudioEvent
 from server.services.audio_event_filter import is_event_accepted
 
 app = FastAPI(title="DrownI Ingest API", version="0.1.0")
+from server.api.tdoa import router as tdoa_router
+app.include_router(tdoa_router)
 
 
 class IngestPayload(BaseModel):
@@ -71,3 +73,4 @@ def ingest_audio(payload: IngestPayload, db: Session = Depends(get_db)):
         "event_id": ev.id,
         "accepted": accepted,
     }
+    
