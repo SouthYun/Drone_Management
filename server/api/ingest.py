@@ -14,6 +14,8 @@ from server.api.tdoa import router as tdoa_router
 app.include_router(tdoa_router)
 from server.api.missions import router as missions_router
 app.include_router(missions_router)
+from server.api.events import router as events_router
+app.include_router(events_router)
 
 
 
