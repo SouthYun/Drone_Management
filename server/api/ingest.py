@@ -19,6 +19,7 @@ from server.services.audio_event_filter import is_event_accepted
 from server.jobs.data_retention import run_scheduler
 from server.services.failsafe_monitor import run_failsafe_monitor, update_sensor_heartbeat
 from server.api.realtime import broadcast_event
+from server.services.metrics_collector import METRICS
 
 # -------------------------------------------------------------
 # FastAPI 초기화 및 미들웨어
@@ -102,6 +103,7 @@ def health():
 # -------------------------------------------------------------
 @app.post("/ingest/audio", status_code=202)
 def ingest_audio(payload: IngestPayload, db: Session = Depends(get_db)):
+    METRICS.note_audio_event()
     ts = payload.ts or datetime.now(timezone.utc)
     accepted = is_event_accepted(payload.prob_help)
 
