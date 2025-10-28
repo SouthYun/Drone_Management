@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { MapContainer, TileLayer, Marker, Popup } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
+import ControlBar from "../components/ControlBar";
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:8000";
 
@@ -51,26 +52,32 @@ export default function MapView() {
   const lon = event.meta?.lon ?? 126.9780;
 
   return (
-    <div className="h-[80vh] w-full">
-      <MapContainer center={[lat, lon]} zoom={15} className="h-full w-full">
-        <TileLayer
-          attribution='&copy; <a href="https://www.openstreetmap.org/">OpenStreetMap</a>'
-          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-        />
-        <Marker position={[lat, lon]} icon={redIcon}>
-          <Popup>
-            <div>
-              <strong>ID:</strong> {event.id}
-              <br />
-              <strong>Sensor:</strong> {event.sensor_id}
-              <br />
-              <strong>Prob:</strong> {event.prob_help.toFixed(2)}
-              <br />
-              <strong>Time:</strong> {new Date(event.ts).toLocaleString()}
-            </div>
-          </Popup>
-        </Marker>
-      </MapContainer>
+    <div className="p-0">
+      {/* 상단 관제 제어바 연결 */}
+      <ControlBar />
+
+      {/* 지도 영역 */}
+      <div className="h-[80vh] w-full">
+        <MapContainer center={[lat, lon]} zoom={15} className="h-full w-full">
+          <TileLayer
+            attribution='&copy; <a href="https://www.openstreetmap.org/">OpenStreetMap</a>'
+            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          />
+          <Marker position={[lat, lon]} icon={redIcon}>
+            <Popup>
+              <div>
+                <strong>ID:</strong> {event.id}
+                <br />
+                <strong>Sensor:</strong> {event.sensor_id}
+                <br />
+                <strong>Prob:</strong> {event.prob_help.toFixed(2)}
+                <br />
+                <strong>Time:</strong> {new Date(event.ts).toLocaleString()}
+              </div>
+            </Popup>
+          </Marker>
+        </MapContainer>
+      </div>
     </div>
   );
 }
