@@ -1,8 +1,19 @@
 # server/api/ingest.py
 """
-DrownI Main API Server
-----------------------
-센서 데이터 수집 + 드론 임무 관리 + AI 탐지 + 실시간 관제 + 메트릭 수집 + 예외처리 통합 버전
+DrownI Main API Server (Final Integrated Version)
+-------------------------------------------------
+✅ 기능 포함:
+ - 센서 데이터 업링크 (/ingest/audio)
+ - FailSafe 모니터링 / 자동 RTL
+ - Metrics 실시간 수집
+ - 전역 예외 핸들러 (JSON 응답 + 로그)
+ - MQTT 브리지 (센서 노드용)
+ - 관리자 제어 API (/admin)
+ - API Key 인증 보호
+ - 드론 실시간 위치 트래킹
+ - SSE 기반 실시간 관제
+
+Author : Park Jaekyun (DrownI Project)
 """
 
 import asyncio, json
@@ -22,18 +33,20 @@ from server.services.audio_event_filter import is_event_accepted
 from server.jobs.data_retention import run_scheduler
 from server.services.failsafe_monitor import run_failsafe_monitor, update_sensor_heartbeat
 from server.services.metrics_collector import METRICS, run_metrics_scheduler
+from server.services.mqtt_bridge import run_mqtt_bridge
 from server.api.realtime import broadcast_event
-from server.core.error_handler import register_exception_handlers   # ✅ 전역 예외 핸들러
+from server.core.error_handler import register_exception_handlers
+from server.security.auth import verify_api_key
 
 # ───────────────────────────────────────────────
 # FastAPI 초기화 및 미들웨어 등록
 # ───────────────────────────────────────────────
 app = FastAPI(title="DrownI API Server", version="2.0.0")
 
-# 예외 핸들러 등록 (전역)
+# 전역 예외 핸들러 등록
 register_exception_handlers(app)
 
-# CORS 설정
+# CORS 허용 (프론트엔드 접근용)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -53,6 +66,7 @@ from server.api.logs import router as logs_router
 from server.api.detections import router as detections_router
 from server.api.realtime import router as realtime_router
 from server.api.metrics import router as metrics_router
+from server.api.admin import router as admin_router
 from server.services import drone_tracker
 
 app.include_router(tdoa_router)
@@ -64,6 +78,8 @@ app.include_router(detections_router)
 app.include_router(realtime_router)
 app.include_router(metrics_router)
 app.include_router(drone_tracker.router)
+# ✅ 관리자 API는 인증 보호 적용
+app.include_router(admin_router, dependencies=[Depends(verify_api_key)])
 
 # ───────────────────────────────────────────────
 # DB 세션 종속성
@@ -98,11 +114,12 @@ class IngestPayload(BaseModel):
 # ───────────────────────────────────────────────
 @app.on_event("startup")
 def on_startup():
-    """DB 초기화 + 스케줄러 + 페일세이프 + 메트릭 수집기 시작"""
+    """DB 초기화 + 스케줄러 + 페일세이프 + 메트릭 수집기 + MQTT 브리지 실행"""
     init_db()
-    asyncio.create_task(run_scheduler())          # 데이터 보존 정책
-    asyncio.create_task(run_failsafe_monitor())   # 페일세이프 감시
-    asyncio.create_task(run_metrics_scheduler())  # 메트릭 분단위 롤링
+    asyncio.create_task(run_scheduler())          # 7일 데이터 보존 정책
+    asyncio.create_task(run_failsafe_monitor())   # 드론/센서 상태 감시
+    asyncio.create_task(run_metrics_scheduler())  # Metrics 롤링
+    asyncio.create_task(run_mqtt_bridge())        # MQTT → HTTP 브리지
     print(f"[DrownI] Server started at {datetime.now(timezone.utc).isoformat()}")
 
 # ───────────────────────────────────────────────
@@ -119,11 +136,11 @@ def health():
 def ingest_audio(payload: IngestPayload, db: Session = Depends(get_db)):
     """
     센서 → 서버 업링크 처리:
-    - prob_help >= threshold → 이벤트 accepted
-    - 배터리 상태 업데이트
-    - 메트릭 카운트 및 SSE 브로드캐스트
+     - prob_help >= threshold → 이벤트 accepted
+     - 배터리 상태 갱신
+     - 메트릭 카운트 및 SSE 브로드캐스트
     """
-    # ✅ 메트릭 카운트
+    # ✅ Metrics 카운트
     METRICS.note_audio_event()
 
     ts = payload.ts or datetime.now(timezone.utc)
@@ -146,7 +163,7 @@ def ingest_audio(payload: IngestPayload, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(ev)
 
-    # SSE 브로드캐스트 (지도용)
+    # SSE 브로드캐스트 (지도/실시간 이벤트)
     if accepted:
         meta = payload.meta or {}
         broadcast_event(json.dumps({
