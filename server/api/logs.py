@@ -30,3 +30,10 @@ def recent_logs(limit: int = Query(50, ge=1, le=500), db: Session = Depends(get_
         }
         for r in rows
     ]
+@router.post("/append")
+def append_log(level: str, message: str, db: Session = Depends(get_db)):
+    entry = Log(level=level, message=message)
+    db.add(entry)
+    db.commit()
+    broadcast_log(f"[{level}] {message} @ {datetime.now(timezone.utc).isoformat()}")
+    return {"ok": True}
