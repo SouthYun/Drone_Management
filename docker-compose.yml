@@ -1,0 +1,34 @@
+version: "3.9"
+
+services:
+  drowni-server:
+    build: .
+    container_name: drowni_server
+    ports:
+      - "8000:8000"
+      - "1883:1883"
+    environment:
+      - ADMIN_API_KEY=drowni-secret-key
+    volumes:
+      - .:/app
+    command: ["bash", "run_all.sh"]
+    depends_on:
+      - mqtt
+    restart: always
+
+  mqtt:
+    image: eclipse-mosquitto:2
+    container_name: drowni_mqtt
+    ports:
+      - "1883:1883"
+    restart: always
+
+  ai:
+    build: .
+    container_name: drowni_ai
+    command: ["python", "ai/video_infer_yolo.py"]
+    depends_on:
+      - drowni-server
+    environment:
+      - API=http://drowni-server:8000/detections/push
+    restart: always
