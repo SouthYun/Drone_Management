@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { MapContainer, TileLayer, Marker, Popup, CircleMarker } from "react-leaflet";
+import { MapContainer, TileLayer, Marker, Popup, CircleMarker, Polyline } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
 import ControlBar from "../components/ControlBar";
@@ -8,9 +8,7 @@ const API_BASE = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:8000";
 
 const redIcon = new L.Icon({
   iconUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x-red.png",
-  iconSize: [25, 41],
-  iconAnchor: [12, 41],
-  popupAnchor: [1, -34],
+  iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34],
   shadowUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png",
   shadowSize: [41, 41],
 });
@@ -24,7 +22,10 @@ export default function MapView() {
   const [events, setEvents] = useState<AudioPoint[]>([]);
   const [missions, setMissions] = useState<MissionPoint[]>([]);
   const [drones, setDrones] = useState<DroneState[]>([]);
+  // 드론별 경로: { [droneId]: [ [lat,lon], ... ] }
+  const [paths, setPaths] = useState<Record<string, [number, number][]>>({});
 
+  // 초기 중심
   useEffect(() => {
     (async () => {
       try {
@@ -38,6 +39,7 @@ export default function MapView() {
     })();
   }, []);
 
+  // SSE 구독
   useEffect(() => {
     const esEv = new EventSource(`${API_BASE}/realtime/events`);
     const esSt = new EventSource(`${API_BASE}/realtime/status`);
@@ -46,7 +48,10 @@ export default function MapView() {
       try {
         const msg = JSON.parse(e.data);
         if (msg.type === "audio_event" && msg.lat && msg.lon) {
-          setEvents((prev) => [{ id: msg.id, ts: msg.ts, lat: msg.lat, lon: msg.lon, prob_help: msg.prob_help, sensor_id: msg.sensor_id }, ...prev].slice(0, 100));
+          setEvents((prev) => [
+            { id: msg.id, ts: msg.ts, lat: msg.lat, lon: msg.lon, prob_help: msg.prob_help, sensor_id: msg.sensor_id },
+            ...prev,
+          ].slice(0, 100));
         }
       } catch {}
     };
@@ -55,7 +60,10 @@ export default function MapView() {
       try {
         const msg = JSON.parse(e.data);
         if (msg.type === "mission_enqueued" && msg.waypoint) {
-          setMissions((prev) => [{ id: msg.waypoint.id, lat: msg.waypoint.lat, lon: msg.waypoint.lon, alt: msg.waypoint.alt, ts: msg.waypoint.created_at, status: "queued" }, ...prev].slice(0, 20));
+          setMissions((prev) => [
+            { id: msg.waypoint.id, lat: msg.waypoint.lat, lon: msg.waypoint.lon, alt: msg.waypoint.alt, ts: msg.waypoint.created_at, status: "queued" },
+            ...prev,
+          ].slice(0, 20));
         } else if (msg.type === "mission_dispatched" && msg.waypoint) {
           setMissions((prev) => prev.map(m => m.id === msg.waypoint.id ? { ...m, status: "dispatched" } : m));
         } else if (msg.type === "mission_ended") {
@@ -63,9 +71,17 @@ export default function MapView() {
         } else if (msg.type === "mission_timeout_rtl") {
           setMissions((prev) => prev.map(m => m.id === msg.mission_id ? { ...m, status: "timeout_rtl" } : m));
         } else if (msg.type === "drone_update") {
+          // 드론 현재 위치
           setDrones((prev) => {
             const others = prev.filter(d => d.id !== msg.drone_id);
             return [{ id: msg.drone_id, lat: msg.lat, lon: msg.lon, alt: msg.alt, battery: msg.battery }, ...others];
+          });
+          // 경로 누적 (최대 200점)
+          setPaths((prev) => {
+            const arr = prev[msg.drone_id] ? [...prev[msg.drone_id]] : [];
+            arr.push([msg.lat, msg.lon]);
+            if (arr.length > 200) arr.shift();
+            return { ...prev, [msg.drone_id]: arr };
           });
         }
       } catch {}
@@ -110,7 +126,10 @@ export default function MapView() {
             </CircleMarker>
           ))}
 
-          {/* 드론 현재 위치 (노란 원) */}
+          {/* 드론 현재 위치 (노란 원) + 경로(주황 Polyline) */}
+          {Object.entries(paths).map(([id, pts]) => (
+            <Polyline key={`path-${id}`} positions={pts} pathOptions={{ color: "orange", weight: 3, opacity: 0.8 }} />
+          ))}
           {drones.map((d) => (
             <CircleMarker key={`drone-${d.id}`} center={[d.lat, d.lon]} radius={8} pathOptions={{ color: "gold" }}>
               <Popup>
