@@ -12,6 +12,9 @@ from server.services.audio_event_filter import is_event_accepted
 app = FastAPI(title="DrownI Ingest API", version="0.1.0")
 from server.api.tdoa import router as tdoa_router
 app.include_router(tdoa_router)
+from server.api.missions import router as missions_router
+app.include_router(missions_router)
+
 
 
 class IngestPayload(BaseModel):
