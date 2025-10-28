@@ -2,20 +2,18 @@
 from collections import deque
 from datetime import datetime, timezone
 from typing import Dict, List
-from fastapi import APIRouter, Body
+from fastapi import APIRouter
 from pydantic import BaseModel, Field
 from server.api.realtime import broadcast_detection
+import json
 
 router = APIRouter(prefix="/detections", tags=["detections"])
-
-# 메모리 보관소 (최근 200개)
 _RECENT = deque(maxlen=200)
 
 class Detection(BaseModel):
     stream_id: str = Field(..., examples=["drone-1"])
-    cls: str = Field(..., examples=["person", "smoke", "fire"])
-    conf: float = Field(..., ge=0, le=1, examples=[0.87])
-    # 0~1 정규화 좌표 (x,y,w,h) - 선택
+    cls: str = Field(..., examples=["person","smoke","fire"])
+    conf: float = Field(..., ge=0, le=1)
     bbox: List[float] | None = None
     ts: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
@@ -23,8 +21,6 @@ class Detection(BaseModel):
 def push_detection(det: Detection):
     item: Dict = det.model_dump()
     _RECENT.appendleft(item)
-    # 실시간 푸시(SSE) — JSON 그대로 문자열로
-    import json
     broadcast_detection(json.dumps(item, default=str))
     return {"ok": True}
 
