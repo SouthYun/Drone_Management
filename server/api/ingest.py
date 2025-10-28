@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from server.db.models import SessionLocal, init_db, AudioEvent
 from server.services.audio_event_filter import is_event_accepted
 from server.jobs.data_retention import run_scheduler
+from server.services.failsafe_monitor import run_failsafe_monitor
 
 # -----------------------------
 # App & Middleware
@@ -80,6 +81,7 @@ class IngestPayload(BaseModel):
 def on_startup():
     init_db()
     asyncio.create_task(run_scheduler())  # 6시간마다 보존기간 초과 데이터 정리
+    asyncio.create_task(run_failsafe_monitor()) # 페일세이프 모니터 병렬 실행
     print("[DrownI] API server started at", datetime.now(timezone.utc).isoformat())
 
 # -----------------------------
