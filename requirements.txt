@@ -1,0 +1,10 @@
+fastapi
+uvicorn
+sqlalchemy
+pydantic
+requests
+paho-mqtt
+opencv-python
+ultralytics
+python-multipart
+aiofiles
